@@ -2,34 +2,36 @@
 #include <vector>
 #include <string>
 #include <chrono>
-#include <random>
+#include <sys/resource.h>
 
 using namespace std;
 using namespace std::chrono;
+
+// --- Fungsi Helper Memori (Khusus Linux/Ubuntu) ---
+long getPeakRSS() {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    return usage.ru_maxrss; // Nilai dalam Kilobytes (KB)
+}
 
 // ==========================================
 // ALGORITMA NAIVE & KMP (CORE LOGIC)
 // ==========================================
 
-// 1. NAIVE
 int naiveSearch(const string& text, const string& pattern) {
     int n = text.length();
     int m = pattern.length();
     int count = 0;
-    
-    // Loop ini akan sangat lambat jika terjadi banyak "partial match"
     for (int i = 0; i <= n - m; i++) {
         int j;
         for (j = 0; j < m; j++) {
-            if (text[i + j] != pattern[j])
-                break;
+            if (text[i + j] != pattern[j]) break;
         }
         if (j == m) count++;
     }
     return count;
 }
 
-// 2. KMP HELPERS
 void computeLPSArray(const string& pattern, int m, vector<int>& lps) {
     int len = 0;
     lps[0] = 0;
@@ -46,21 +48,21 @@ void computeLPSArray(const string& pattern, int m, vector<int>& lps) {
     }
 }
 
-// 3. KMP MAIN
-int KMPSearch(const string& text, const string& pattern) {
+int KMPSearch(const string& text, const string& pattern, size_t& extraMemKMP) {
     int n = text.length();
     int m = pattern.length();
     int count = 0;
+    
+    // Alokasi tabel LPS
     vector<int> lps(m);
+    extraMemKMP = lps.size() * sizeof(int); // Hitung memori tabel LPS
+    
     computeLPSArray(pattern, m, lps);
     
     int i = 0; 
     int j = 0; 
     while (i < n) {
-        if (pattern[j] == text[i]) {
-            j++;
-            i++;
-        }
+        if (pattern[j] == text[i]) { j++; i++; }
         if (j == m) {
             count++;
             j = lps[j - 1];
@@ -72,109 +74,59 @@ int KMPSearch(const string& text, const string& pattern) {
     return count;
 }
 
-// ==========================================
-// DATA GENERATION (DETERMINISTIC)
-// ==========================================
-
 int main() {
-    // A. KONFIGURASI SIMULASI
-    const int TEXT_LENGTH = 10000000; // 10 Juta karakter
-    const int PATTERN_REPEAT_COUNT = 1000; // Panjang repetisi dalam pattern
-    const string MOTIF = "CAG"; // Motif trinucleotide (Huntington's Disease style)
+    const int TEXT_LENGTH = 10000000; 
+    const int PATTERN_REPEAT_COUNT = 1000; 
+    const string MOTIF = "CAG"; 
     
-    cout << "=== DNA MATCHING: DETERMINISTIC SIMULATION ===" << endl;
+    cout << "=== DNA MATCHING: MEMORY & TIME ANALYSIS ===" << endl;
     
-    // B. MEMBUAT PATTERN (TARGET)
-    // Pattern: "CAG" diulang 1000 kali + "T" di ujung.
-    // Struktur ini "jahat" untuk Naive karena 99.9% pattern-nya cocok dengan background noise.
-    string pattern = "";
-    pattern.reserve((MOTIF.length() * PATTERN_REPEAT_COUNT) + 1);
-    for(int i = 0; i < PATTERN_REPEAT_COUNT; i++) {
-        pattern += MOTIF;
-    }
-    pattern += "T"; // Karakter pembeda di ujung akhir
-    
-    cout << "1. Pattern Created." << endl;
-    cout << "   Structure : (" << MOTIF << " x " << PATTERN_REPEAT_COUNT << ") + 'T'" << endl;
-    cout << "   Length    : " << pattern.length() << " bases" << endl;
+    // 1. Cek Memori Sebelum Data Dibuat
+    long memBefore = getPeakRSS();
 
-    // C. MEMBUAT TEXT (BACKGROUND NOISE)
-    // Kita isi text dengan "CAG" terus menerus.
-    // Ini mensimulasikan area STR (Short Tandem Repeat) yang sangat panjang.
-    cout << "2. Generating High-Repetition Genomic Text (" << TEXT_LENGTH << " bases)... ";
+    string pattern = "";
+    for(int i = 0; i < PATTERN_REPEAT_COUNT; i++) pattern += MOTIF;
+    pattern += "T"; 
+
     string text;
     text.reserve(TEXT_LENGTH);
-    while (text.length() < TEXT_LENGTH) {
-        text += MOTIF;
-    }
-    // Potong agar pas ukurannya
+    while (text.length() < TEXT_LENGTH) text += MOTIF;
     text = text.substr(0, TEXT_LENGTH);
-    cout << "Done." << endl;
 
-    // D. INJECT MATCHES (SUNTIKAN)
-    // Kita paksa pattern masuk ke dalam text di posisi tertentu.
-    // Kita masukkan 3 match: Awal, Tengah, Akhir.
+    // 2. Cek Memori Setelah String Dimuat
+    long memAfterData = getPeakRSS();
     
-    vector<int> injectionPoints = {
-        100000,             // Dekat awal
-        TEXT_LENGTH / 2,    // Tengah
-        TEXT_LENGTH - (int)pattern.length() - 1000 // Dekat akhir
-    };
+    cout << "Input Analysis:" << endl;
+    cout << "  - Text Size    : " << (float)text.length() / (1024*1024) << " MB" << endl;
+    cout << "  - Pattern Size : " << (float)pattern.length() / 1024 << " KB" << endl;
+    cout << "  - System RSS   : " << memAfterData << " KB" << endl << endl;
 
-    cout << "3. Injecting " << injectionPoints.size() << " exact matches into text..." << endl;
-    for (int pos : injectionPoints) {
-        // Replace isi text dengan pattern kita di posisi tersebut
-        text.replace(pos, pattern.length(), pattern);
-        cout << "   -> Match injected at index: " << pos << endl;
-    }
-    cout << endl;
-
-    // ==========================================
-    // EKSEKUSI DAN PENGUKURAN
-    // ==========================================
-
-    // RUN NAIVE
-    cout << "[RUNNING NAIVE ALGORITHM]" << endl;
+    // --- EKSEKUSI NAIVE ---
     auto startNaive = high_resolution_clock::now();
-    
     int matchesNaive = naiveSearch(text, pattern);
-    
     auto stopNaive = high_resolution_clock::now();
-    auto durationNaive = duration_cast<milliseconds>(stopNaive - startNaive);
-    cout << "   Result : " << matchesNaive << " matches found." << endl;
-    cout << "   Time   : " << durationNaive.count() << " ms" << endl << endl;
-
-    // RUN KMP
-    cout << "[RUNNING KMP ALGORITHM]" << endl;
+    
+    // --- EKSEKUSI KMP ---
+    size_t extraMemKMP = 0;
     auto startKMP = high_resolution_clock::now();
-    
-    int matchesKMP = KMPSearch(text, pattern);
-    
+    int matchesKMP = KMPSearch(text, pattern, extraMemKMP);
     auto stopKMP = high_resolution_clock::now();
-    auto durationKMP = duration_cast<milliseconds>(stopKMP - startKMP);
-    cout << "   Result : " << matchesKMP << " matches found." << endl;
-    cout << "   Time   : " << durationKMP.count() << " ms" << endl << endl;
 
     // ==========================================
-    // KESIMPULAN LOGIS
+    // HASIL ANALISIS
     // ==========================================
-    cout << "=== FINAL ANALYSIS ===" << endl;
-    if (matchesNaive != injectionPoints.size() || matchesKMP != injectionPoints.size()) {
-        cout << "ERROR: Algoritma gagal menemukan jumlah match yang benar!" << endl;
-    } else {
-        cout << "Validation: Both algorithms found exactly " << injectionPoints.size() << " matches." << endl;
-        
-        long naiveTime = durationNaive.count();
-        long kmpTime = durationKMP.count();
-        
-        // Hindari pembagian nol (jika PC terlalu cepat)
-        if (kmpTime == 0) kmpTime = 1; 
-        
-        cout << "Performance Ratio: KMP is " << (float)naiveTime / kmpTime << "x faster." << endl;
-        cout << "Why? Because the text consists of repeated '" << MOTIF << "'." << endl;
-        cout << "Naive checks every single repetition unnecessarily." << endl;
-        cout << "KMP uses the LPS table to skip aligned repetitions." << endl;
-    }
+    cout << "--- Performance Comparison ---" << endl;
+    cout << "Naive Algorithm:" << endl;
+    cout << "  - Time         : " << duration_cast<milliseconds>(stopNaive - startNaive).count() << " ms" << endl;
+    cout << "  - Extra Memory : 0 bytes (In-place)" << endl;
 
+    cout << "\nKMP Algorithm:" << endl;
+    cout << "  - Time         : " << duration_cast<milliseconds>(stopKMP - startKMP).count() << " ms" << endl;
+    cout << "  - Extra Memory : " << extraMemKMP << " bytes (LPS Table)" << endl;
+    cout << "    (Pattern Length " << pattern.length() << " * " << sizeof(int) << " bytes)" << endl << endl;
+
+    cout << "Summary:" << endl;
+    cout << "KMP membutuhkan " << extraMemKMP << " bytes memori tambahan untuk mempercepat pencarian." << endl;
+    
     return 0;
 }
