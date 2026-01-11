@@ -75,7 +75,7 @@ int KMPSearch(const string& text, const string& pattern, size_t& extraMemKMP) {
 }
 
 int main() {
-    const int TEXT_LENGTH = 10000000; 
+    const int TEXT_LENGTH = 1000000; 
     const int PATTERN_REPEAT_COUNT = 1000; 
     const string MOTIF = "CAG"; 
     
